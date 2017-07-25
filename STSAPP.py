@@ -25,8 +25,6 @@ import time
 import math
 from sklearn import ensemble
 import csv
-from nltk.corpus import genesis
-from nltk.corpus import wordnet_ic
 import pandas as pd
 import numpy as np
 import sys
@@ -39,9 +37,6 @@ from sklearn.cross_validation import train_test_split
 from sklearn.externals import joblib
 lemmatizer = WordNetLemmatizer()
 global directory,filename
-#brown_ic = wordnet_ic.ic('ic-brown.dat')
-#semcor_ic = wordnet_ic.ic('ic-semcor.dat')
-#genesis_ic = wn.ic(genesis, False, 0.0)
 global out_file
 global status
 def browseDestDir():
