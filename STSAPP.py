@@ -15,6 +15,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.metrics import jaccard_distance
 from nltk.metrics import edit_distance
 from nltk.util import ngrams
+from stop_words import get_stop_words
 from ete2 import Tree
 from nltk.corpus import brown
 from sklearn import svm
@@ -36,7 +37,6 @@ from sklearn.cross_validation import train_test_split
 from sklearn.externals import joblib
 lemmatizer = WordNetLemmatizer()
 global directory,filename
-
 global out_file
 global status
 def browseDestDir():
@@ -129,6 +129,7 @@ def hierarchy_dist(synset_1, synset_2):
     nodes closer to the root are broader and have less semantic similarity
     than nodes further away from the root.
     """
+    
     h_dist = sys.maxsize
     if synset_1 is None or synset_2 is None: 
         return h_dist
@@ -601,6 +602,177 @@ def semanticFeature(d,inputfile):
     fi.close()
     fn.close()
     text.configure(state="disabled")
+def senseSimilarity(u,v):
+    uset = set(u)
+    vset = set(v)
+    w = uset.union(vset)
+    uvec = []
+    vvec = []
+    for i in w:
+        m = 0.0
+        for j in uset:
+            #sim = i.path_similarity(j)
+            sim = hierarchy_dist(i,j) * length_dist(i,j)
+            if sim > m:
+                m = sim
+        if m < 0.5:
+            uvec.append(0.0)
+            continue
+        uvec.append(m)
+    for i in w:
+        m = 0.0
+        for j in vset:
+            #sim = i.path_similarity(j)
+            sim = hierarchy_dist(i,j) * length_dist(i,j)
+            if sim > m:
+                m = sim
+        if m < 0.5:
+            vvec.append(0.0)
+            continue
+        vvec.append(m)
+    print w,uset,uvec,vset,vvec
+    cos_sim = cosine_similarity(uvec,vvec)
+    return cos_sim
+    
+def wordSense(d,inputfile):
+    text.configure(state="normal")
+    text.delete('1.0',END)
+    e = inputfile+"/"
+    fi = open(d+inputfile+".txt",'r')
+    d += e
+    fn = open(d+"sense.txt",'w+')
+    fi.readline()
+    fn.write("sense\n")
+    for sentence_pairs in fi.readlines():
+        sent_pair=sentence_pairs.split("\t")
+        sentence_1 = sent_pair[0][:-1].lower()
+        sentence_2 = sent_pair[1][:-1].lower()
+        words_1 = sentence_1.split()
+        words_2 = sentence_2.split()
+        stop_words = get_stop_words('en')
+        stop_words = get_stop_words('english')
+        sent1 = nltk.pos_tag(words_1)
+        sent2 = nltk.pos_tag(words_2)
+        w=[]
+        for s in sent1:
+            if s[0] not in stop_words:
+                w.append(s)
+        sent1 = w
+        
+        w = []
+        for s in sent2:
+            if s[0] not in stop_words:
+                w.append(s) 
+        sent2 = w
+        
+        #semanT = semantic_similarity(sentence_1, sentence_2, True)
+        nouns = ['NN','NNS','NNP','NNPS']
+        adj = ['JJ','JJR','JJS']
+        adv = ['RB','RBR','RBS']
+        verbs = ['VB','VBG','VBN','VBZ','VBP','VBD']
+        all_pos = ['NN','NNS','NNP','NNPS','JJ','JJR','JJS','RB','RBR','RBS','VB','VBG','VBN','VBZ','VBP','VBD']
+        
+        pos = []
+        for s in sent1:
+            if s[1] not in all_pos:
+                pos.append((s[0],'n'))
+            if s[1] in nouns:
+                pos.append((s[0],'n'))
+            if s[1] in adj:
+                pos.append((s[0],'a'))
+            if s[1] in adv:
+                pos.append((s[0],'r'))
+            if s[1] in verbs:
+                pos.append((s[0],'v'))
+        sent1 = pos
+        pos = []
+        for s in sent2:
+            if s[1] not in all_pos:
+                pos.append((s[0],'n'))
+            if s[1] in nouns:
+                pos.append((s[0],'n'))
+            if s[1] in adj:
+                pos.append((s[0],'a'))
+            if s[1] in adv:
+                pos.append((s[0],'r'))
+            if s[1] in verbs:
+                pos.append((s[0],'v'))
+        sent2 = pos
+        #print sent1,sent2
+        sentsen1 = []
+        
+        for s1 in sent1:
+            sent1d = dict()
+            #print s1
+            for syns1 in wn.synsets(s1[0],s1[1]):
+                sent1d[syns1] = []
+            if len(sent1d) == 0:
+                continue
+            for s2 in sent1:
+                if s1 != s2:
+                    for syns1 in wn.synsets(s1[0],s1[1]):
+                        m = 0.0
+                        for syns2 in wn.synsets(s2[0],s2[1]):
+                            n = hierarchy_dist(syns1,syns2) * length_dist(syns1,syns2)
+                            #n = syns1.path_similarity(syns2)
+                            if n > m:
+                                m = n
+                        sent1d[syns1].append(m)
+            xs = []
+            dlst = list(sent1d)
+            #print sent1d
+            for i in dlst:
+                xs.append(sum(sent1d[i]))
+            if len(xs) == 1:
+                sentsen1.append(dlst[0])
+                continue    
+            #print xs
+            idx = xs.index(max(xs))
+            sentsen1.append(dlst[idx])
+        
+        sentsen2 = []
+        
+        for s1 in sent2:
+            sent2d = dict()
+            for syns1 in wn.synsets(s1[0],s1[1]):
+                sent2d[syns1] = []
+            if len(sent2d) == 0:
+                continue
+            for s2 in sent2:
+                
+                for syns1 in wn.synsets(s1[0],s1[1]):
+                    m = 0.0
+                    for syns2 in wn.synsets(s2[0],s2[1]):
+                        n = hierarchy_dist(syns1,syns2) * length_dist(syns1,syns2)
+                        #n = syns1.path_similarity(syns2)
+                        if n > m:
+                            m = n
+                    sent2d[syns1].append(m)
+            xs = []
+            dlst = list(sent2d)
+            #print sent2d
+            for i in dlst:
+                xs.append(sum(sent2d[i]))
+            if len(xs) == 1:
+                sentsen2.append(dlst[0])
+                continue
+            idx = xs.index(max(xs))
+            sentsen2.append(dlst[idx])
+        semanT = 0.0
+        if len(sentsen1) != 0 and len(sentsen2) != 0:
+            semanT = senseSimilarity(sentsen1,sentsen2)
+        """
+        print sentsen1,sentsen2
+        for s in sentsen1:
+            print s,s.definition()
+        for s in sentsen2:
+            print s,s.definition()
+        """
+        text.insert(INSERT,"%s\t%s\t%.3f\t\n"%(sent_pair[0],sent_pair[1],semanT))
+        fn.write("%.3f\n"%(semanT))
+    fi.close()
+    fn.close()
+    text.configure(state="disabled")
 def Sent2Vec(d,inputfile):
     text.configure(state="normal")
     text.delete('1.0',END)
@@ -678,13 +850,13 @@ def combineAll(d,flag):
         act = open(d+"actual.txt","r")
     fn = open(d+"combined.txt","w")
     leng = open(d+"len.txt","r")
-    oneh = open(d+"onehot.txt","r")
     cdssm = open(d+"cdssm.txt","r")
     dssm = open(d+"dssm.txt","r")
     lcs = open(d+"lcs.txt","r")
     wo = open(d+"wordorder.txt","r")
     sem = open(d+"semantic.txt","r")
     ng = open(d+"ngrams.txt","r")
+    sen = open(d+"sense.txt","r")
     np = open(d+"nounphrase.txt","r")
     tfidf = open(d+"tfidf.txt","r")
     for npe in np.readlines():
@@ -694,17 +866,28 @@ def combineAll(d,flag):
         lst.append((cdssm.readline())[:-1])
         lst.append((dssm.readline())[:-1])
         lst.append((sem.readline())[:-1])
+        lst.append((sen.readline())[:-1])
         lst.append(npe[:-1])
         lst.append((leng.readline())[:-1])
         lst.append((lcs.readline())[:-1])
         lst.append((wo.readline())[:-1])
         lst.append((ng.readline())[:-1])
-        lst.append((oneh.readline())[:-1])
         lst.append((tfidf.readline())[:-1])
         line = "\t".join(lst)
         line += "\n"
         fn.write(line)
     fn.close()
+    act.close()
+    leng.close()
+    cdssm.close()
+    dssm.close()
+    lcs.close()
+    wo.close()
+    sem.close()
+    ng.close()
+    sen.close()
+    np.close()
+    tfidf.close()
     txt_file = r"combined.txt"
     csv_file = r"combined.csv"
     in_txt = csv.reader(open(d+txt_file, "rb"), delimiter = '\t')
@@ -718,7 +901,7 @@ def modelGen(d,f):
     train = pd.read_csv(df+"combinedn.csv")
     print d
     text.insert(INSERT, train.head())
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -728,7 +911,7 @@ def modelGen(d,f):
     filename = d+'models/rf_syn.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -748,7 +931,7 @@ def modelGen(d,f):
     filename = d+'models/rf_sem.sav'
     joblib.dump(model, filename)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -758,7 +941,7 @@ def modelGen(d,f):
     filename = d+'models/rf_semw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -768,7 +951,7 @@ def modelGen(d,f):
     filename = d+'models/rf_all.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -778,7 +961,7 @@ def modelGen(d,f):
     filename = d+'models/rf_allw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -791,7 +974,7 @@ def modelGen(d,f):
     filename = d+'models/bagging_syn.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -817,7 +1000,7 @@ def modelGen(d,f):
     filename = d+'models/bagging_sem.sav'
     joblib.dump(model, filename)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -830,7 +1013,7 @@ def modelGen(d,f):
     filename = d+'models/bagging_semw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -843,7 +1026,7 @@ def modelGen(d,f):
     filename = d+'models/bagging_all.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -856,22 +1039,22 @@ def modelGen(d,f):
     filename = d+'models/bagging_allw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_syn.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_synw.sav'
     joblib.dump(model, filename)
@@ -881,42 +1064,42 @@ def modelGen(d,f):
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_sem.sav'
     joblib.dump(model, filename)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_semw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_all.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
     print train,trainArr,trainRes
-    model = svm.SVR(kernel='rbf', C=1,gamma=1)
+    model = svm.SVR(kernel='rbf', C=1,gamma='auto')
     model.fit(trainArr, trainRes)
     filename = d+'models/svr_allw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -927,7 +1110,7 @@ def modelGen(d,f):
     filename = d+'models/boosting_syn.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -949,7 +1132,7 @@ def modelGen(d,f):
     filename = d+'models/boosting_sem.sav'
     joblib.dump(model, filename)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -960,7 +1143,7 @@ def modelGen(d,f):
     filename = d+'models/boosting_semw.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -971,7 +1154,7 @@ def modelGen(d,f):
     filename = d+'models/boosting_all.sav'
     joblib.dump(model, filename)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     colsRes = ['actual']
     trainArr = train.as_matrix(cols) #training array
     trainRes = train.as_matrix(colsRes) # training results
@@ -1037,7 +1220,7 @@ def randomForest(d):
         accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
         semn.append(accuracy)
         
-        cols = ['semantic','cdssm','dssm','nounphrase'] 
+        cols = ['semantic','cdssm','dssm','sense'] 
         colsRes = ['actual']
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
@@ -1164,7 +1347,7 @@ def bagging(d):
         accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
         semn.append(accuracy)
         
-        cols = ['semantic','cdssm','dssm','nounphrase'] 
+        cols = ['semantic','cdssm','dssm','sense'] 
         colsRes = ['actual']
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
@@ -1256,7 +1439,7 @@ def supportVector(d):
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1269,7 +1452,7 @@ def supportVector(d):
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1283,7 +1466,7 @@ def supportVector(d):
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1291,12 +1474,12 @@ def supportVector(d):
         accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
         semn.append(accuracy)
         
-        cols = ['semantic','cdssm','dssm','nounphrase'] 
+        cols = ['semantic','cdssm','dssm','sense'] 
         colsRes = ['actual']
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1309,7 +1492,7 @@ def supportVector(d):
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1322,7 +1505,7 @@ def supportVector(d):
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
         print train,trainArr,trainRes
-        model = svm.SVR(kernel='rbf', C=1,gamma=0) # initialize
+        model = svm.SVR(kernel='rbf', C=1,gamma='auto') # initialize
         model.fit(trainArr, trainRes)
         testArr = test.as_matrix(cols)
         results = model.predict(testArr)
@@ -1412,7 +1595,7 @@ def gradientBoosting(d):
         accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
         semn.append(accuracy)
         
-        cols = ['semantic','cdssm','dssm','nounphrase'] 
+        cols = ['semantic','cdssm','dssm','sense'] 
         colsRes = ['actual']
         trainArr = train.as_matrix(cols) #training array
         trainRes = train.as_matrix(colsRes) # training results
@@ -1550,7 +1733,7 @@ def testEval(d,f):
     oneh = []
     text.configure(state="normal")
     test =  pd.read_csv(d+f+"/combinedn.csv")
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/rf_syn.sav'
     model = joblib.load(filename)
@@ -1559,7 +1742,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     syn.append(accuracy)
     print syn
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/rf_synw.sav'
     model = joblib.load(filename)
@@ -1578,7 +1761,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semn.append(accuracy)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/rf_semw.sav'
     model = joblib.load(filename)
@@ -1587,7 +1770,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semnw.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/rf_all.sav'
     model = joblib.load(filename)
@@ -1596,7 +1779,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     allf.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/rf_allw.sav'
     model = joblib.load(filename)
@@ -1640,7 +1823,7 @@ def testEval(d,f):
     semnw = []
     oneh = []
 
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/bagging_syn.sav'
     model = joblib.load(filename)
@@ -1649,7 +1832,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     syn.append(accuracy)
     print syn
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/bagging_synw.sav'
     model = joblib.load(filename)
@@ -1668,7 +1851,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semn.append(accuracy)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/bagging_semw.sav'
     model = joblib.load(filename)
@@ -1677,7 +1860,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semnw.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/bagging_all.sav'
     model = joblib.load(filename)
@@ -1685,7 +1868,7 @@ def testEval(d,f):
     test['bagging_all'] = results
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     allf.append(accuracy)
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/bagging_allw.sav'
     model = joblib.load(filename)
@@ -1725,7 +1908,7 @@ def testEval(d,f):
     semn = []
     semnw = []
     oneh = []
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/boosting_syn.sav'
     model = joblib.load(filename)
@@ -1734,7 +1917,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     syn.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/boosting_synw.sav'
     model = joblib.load(filename)
@@ -1753,7 +1936,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semn.append(accuracy)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/boosting_semw.sav'
     model = joblib.load(filename)
@@ -1762,7 +1945,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semnw.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/boosting_all.sav'
     model = joblib.load(filename)
@@ -1771,7 +1954,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     allf.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/boosting_allw.sav'
     model = joblib.load(filename)
@@ -1811,7 +1994,7 @@ def testEval(d,f):
     semn = []
     semnw = []
     oneh = []
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/svr_syn.sav'
     model = joblib.load(filename)
@@ -1820,7 +2003,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     syn.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/svr_synw.sav'
     model = joblib.load(filename)
@@ -1839,7 +2022,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semn.append(accuracy)
     
-    cols = ['semantic','cdssm','dssm','nounphrase']
+    cols = ['semantic','cdssm','dssm','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/svr_semw.sav'
     model = joblib.load(filename)
@@ -1848,7 +2031,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     semnw.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','nounphrase']
     testArr = test.as_matrix(cols)
     filename = d+'models/svr_all.sav'
     model = joblib.load(filename)
@@ -1857,7 +2040,7 @@ def testEval(d,f):
     accuracy = np.corrcoef(test['actual'].tolist(),results)[0,1]
     allf.append(accuracy)
     
-    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3']
+    cols = ['A', 'B', 'AsB', 'BsA','AuB','AiB','AsBdB','BsAdA','lcs','onehot','wordorder','semantic','cdssm','dssm','nounphrase','tfidf','char2','char3','char4','word1','word2','word3','lemma1','lemma2','lemma3','posgm1','posgm2','posgm3','sense']
     testArr = test.as_matrix(cols)
     filename = d+'models/svr_allw.sav'
     model = joblib.load(filename)
@@ -1903,7 +2086,7 @@ ql = StringVar()
 frame.grid(row=4,column=0,rowspan=12,columnspan=3,pady=20)
 text = ScrolledText(frame,wrap="word")
 text.grid(row=4)
-text.config(font=("Courier", 12))
+text.config(font=("Courier", 8))
 text.configure(background='black',foreground='green')
 directory = StringVar()
 filename = StringVar()
@@ -1934,12 +2117,13 @@ b = Button(root,text='LCS Feature',command=lambda:lcsFeature(directory.get(),fil
 b.grid(row=5,column=4,padx=20)
 b = Button(root,text='Word Order',command=lambda:wordorderFeature(directory.get(),filename.get()))
 b.grid(row=5,column=5,padx=20)
-b = Button(root,text='Semanti With Corpus',command=lambda:semanticFeature(directory.get(),filename.get()))
+b = Button(root,text='Semantic With Corpus',command=lambda:semanticFeature(directory.get(),filename.get()))
 b.grid(row=7,column=3,padx=20)
 
 b = Button(root,text='Sent2Vec',command=lambda:Sent2Vec(directory.get(),filename.get()))
 b.grid(row=7,column=4,padx=20)
-
+b = Button(root,text='Word Sense',command=lambda:wordSense(directory.get(),filename.get()))
+b.grid(row=7,column=5,padx=20)
 b = Button(root,text='One hot Coding',command=lambda:onehotCoding(directory.get(),filename.get()))
 b.grid(row=8,column=3,padx=20)
 b = Button(root,text='Combine All',command=lambda:combineAll(directory.get()+"/"+filename.get(),1))
